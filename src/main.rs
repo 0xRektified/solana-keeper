@@ -1,7 +1,12 @@
+#![warn(dead_code)]
+#![warn(unused_imports)]
+
 use solana_client::rpc_client::RpcClient;
 use std::{env, thread::sleep, time::{self}};
 use dotenv::dotenv;
 use anyhow::Result;
+mod core;
+mod solana;
 
 struct Config {
     rpc_url: String,
