@@ -1,12 +1,18 @@
 #![warn(dead_code)]
 #![warn(unused_imports)]
 
+mod core;
+mod solana;
+
 use solana_client::rpc_client::RpcClient;
+use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 use std::{env, thread::sleep, time::{self}};
 use dotenv::dotenv;
 use anyhow::Result;
-mod core;
-mod solana;
+use tokio;
+
+
+use crate::{core::watcher::Watcher, solana::{executor::ResolveExecutor, trigger::TimestampTrigger}};
 
 struct Config {
     rpc_url: String,
@@ -33,16 +39,27 @@ impl Config {
     }
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
 
     let config = Config::from_env()?;
     let client = RpcClient::new(config.rpc_url);
     let interval_duration = time::Duration::from_secs(config.polling_interval);
-    loop {
-        sleep(interval_duration);
-        match client.get_latest_blockhash() {
-            Ok(blockhash) => println!("Connected: {}", blockhash),
-            Err(e) => println!("failed: {}", e),
-        }
-    }
+    
+    let trigger = TimestampTrigger{};
+
+    let program_id = Pubkey::from_str_const(&config.target_account);
+    let kp = Keypair::new();
+    let executor = ResolveExecutor{
+        rpc_client: client,
+        keypair: kp,
+        program_id: program_id,
+    };
+    
+    let watcher = Watcher{
+        trigger: Box::new(trigger),
+        executor: Box::new(executor),
+        duration: interval_duration
+    };
+    Ok(())
 }
