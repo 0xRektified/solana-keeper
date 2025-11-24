@@ -1,3 +1,3 @@
 pub mod trigger;
 pub mod executor;
-// pub mod watcher;
+pub mod watcher;
