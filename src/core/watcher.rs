@@ -10,7 +10,7 @@ pub struct Watcher<T> {
 }
 
 impl<T> Watcher<T> {
-     async fn run<F>(&self, mut fetch_state: F) -> Result<()>
+     pub async fn run<F>(&self, mut fetch_state: F) -> Result<()>
      where
         F: FnMut() -> Result<T>,
      {
