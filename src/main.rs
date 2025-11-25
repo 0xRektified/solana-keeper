@@ -91,9 +91,9 @@ async fn main() -> Result<()> {
             .ok()
             .and_then(|s| Pubkey::from_str(&s).ok());
         let account = client.get_account(&config_pda)?;
-        println!("len: {}", account.data.len());
+        // println!("len: {}", account.data.len());
         let config_state = ConfigAccount::try_from_slice(&account.data[8..])?;
-        println!("config_state: {:?}", config_state);
+        // println!("config_state: {:?}", config_state);
 
         let (epoch_result_pda, _bump) = Pubkey::find_program_address(
         &[
@@ -102,16 +102,14 @@ async fn main() -> Result<()> {
             &program_id
         );
         let account = client.get_account(&epoch_result_pda)?;
-        println!("HERE");
-        println!("Len: {}", account.data.len());
+        // println!("Len: {}", account.data.len());
         let epoch_state = EpochAccount::try_from_slice(&account.data[8..])?;
-        println!("THERE");
-        println!("epoch_state: {:?}", epoch_state);
+        // println!("epoch_state: {:?}", epoch_state);
         let task_account = TaskAccount{
             config_pda: config_pda,
             epoch_result_pda: epoch_result_pda,
             program_id: program_id,
-            epoch: epoch_state.epoch,
+            epoch: config_state.current_epoch,
             end_at: epoch_state.end_at,
             epoch_result_state: epoch_state.epoch_result_state,
             pool_count: epoch_state.pool_count,

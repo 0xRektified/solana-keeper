@@ -39,7 +39,7 @@ impl Executor<TaskAccount> for ResolveExecutor {
         instruction_data.extend_from_slice(&discriminator);
         // Add argument
         instruction_data.push(0u8);
-        println!("Discriminator: {:?}", discriminator);
+        // println!("Discriminator: {:?}", discriminator);
         const SEED_POOL: &[u8] = b"pool";
 
         let mut accounts = vec![
@@ -60,6 +60,7 @@ impl Executor<TaskAccount> for ResolveExecutor {
             &[b"identity"],
             &state.program_id
         );
+        // println!("program_identity_pda {}", program_identity_pda);
         accounts.push(AccountMeta::new_readonly(program_identity_pda, false));
 
         // 6: vrf_program
@@ -77,6 +78,7 @@ impl Executor<TaskAccount> for ResolveExecutor {
         AccountMeta::new(system_program::ID, false);
 
         let mut remaining_account = vec![];
+        // println!("pool count {}", &state.pool_count);
 
         for i in 0..state.pool_count {
             let (pool_pda, _) = Pubkey::find_program_address(
@@ -87,6 +89,8 @@ impl Executor<TaskAccount> for ResolveExecutor {
                 ],
                 &state.program_id
             );
+            // println!("pool_pda {}", &pool_pda);
+
             remaining_account.push(AccountMeta::new(pool_pda, false));
         }
         accounts.append(&mut remaining_account);

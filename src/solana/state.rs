@@ -17,6 +17,7 @@ pub enum ResolutionType {
 #[derive(BorshDeserialize, Debug)]
 pub struct ConfigAccount {
     pub admin: Pubkey,
+    pub resolver: Pubkey,
     pub current_epoch: u64,
     pub total_positions_minted: u64,
     pub position_price: u64,
