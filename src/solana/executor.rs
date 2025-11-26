@@ -28,6 +28,9 @@ fn calculate_discriminator(namespace: &str, name: &str) -> [u8; 8] {
 }
 
 fn build_resolve_transaction(ctx: &ResolveExecutor, state: &TaskAccount )-> Result<u64> {
+        const MAX_RETRIES: u32 = 3;
+        const RETRY_DELAY_MS: u64 = 1000;
+
         let discriminator = calculate_discriminator("global", "resolve");
         let mut instruction_data = Vec::new();
         // Add Discriminator
@@ -93,21 +96,36 @@ fn build_resolve_transaction(ctx: &ResolveExecutor, state: &TaskAccount )-> Resu
             accounts,
             data: instruction_data,
         };
-        
-        let recent_blockhash = ctx.rpc_client.get_latest_blockhash()?;
-        
-        let transaction = Transaction::new_signed_with_payer(
-            &[instruction],
-            Some(&ctx.keypair.pubkey()),
-            &[&ctx.keypair],
-            recent_blockhash,
-        );
-        
-        let signature = ctx.rpc_client.send_and_confirm_transaction(&transaction)?;
-        println!("Transaction successful: {}", signature);
 
-        // We can increate the epoch here so we don't need to refetch the state
-        Ok(state.epoch + 1)
+        // Retry logic for epoch timing issues
+        let mut last_error = None;
+        for attempt in 1..=MAX_RETRIES {
+            let recent_blockhash = ctx.rpc_client.get_latest_blockhash()?;
+
+            let transaction = Transaction::new_signed_with_payer(
+                &[instruction.clone()],
+                Some(&ctx.keypair.pubkey()),
+                &[&ctx.keypair],
+                recent_blockhash,
+            );
+
+            match ctx.rpc_client.send_and_confirm_transaction(&transaction) {
+                Ok(signature) => {
+                    println!("Transaction successful: {}", signature);
+                    return Ok(state.epoch + 1);
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                    if attempt < MAX_RETRIES {
+                        println!("Attempt {} failed, retrying in {}ms...", attempt, RETRY_DELAY_MS);
+                        std::thread::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS));
+                    }
+                }
+            }
+        }
+
+        // All retries failed, return the last error
+        Err(last_error.unwrap().into())
 }
 
 fn build_init_position_transaction(

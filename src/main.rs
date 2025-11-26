@@ -66,7 +66,7 @@ async fn main() -> Result<()> {
     let keypair_path = std::env::var("KEYPAIR_PATH")
         .unwrap_or_else(|_| {
             let home = std::env::var("HOME").expect("HOME not set");
-            format!("{}/.config/solana/id.json", home)
+            format!("{}/.config/solana/keeper-keypair.json", home)
         });
     
     let kp = read_keypair_file(&keypair_path)
@@ -90,6 +90,7 @@ async fn main() -> Result<()> {
             .and_then(|s| Pubkey::from_str(&s).ok());
 
         let account = client.get_account(&config_pda)?;
+        println!("{}", &account.data.len());
         let config_state = ConfigAccount::try_from_slice(&account.data[8..])?;
         println!("config_state: {:?}", config_state);
 
@@ -102,6 +103,12 @@ async fn main() -> Result<()> {
         );
         let account = client.get_account(&epoch_result_pda)?;
         let epoch_state = EpochAccount::try_from_slice(&account.data[8..])?;
+        println!("epoch_state: {:?}", epoch_state);
+
+        let slot = client.get_slot()?;
+        let block_timestamp = client.get_block_time(slot)? as i64;
+        println!("block_timestamp: {}", block_timestamp);
+
         let task_account = TaskAccount{
             config_pda: config_pda,
             epoch_result_pda: epoch_result_pda,
@@ -111,6 +118,7 @@ async fn main() -> Result<()> {
             epoch_result_state: epoch_state.epoch_result_state,
             pool_count: epoch_state.pool_count,
             custom_pda: custom_pda,
+            block_timestamp: block_timestamp,
         };
         Ok(task_account)
     };

@@ -5,13 +5,9 @@ pub struct TimestampTrigger {}
 
 impl Trigger<TaskAccount> for TimestampTrigger {
     fn should_trigger(&self, task: &TaskAccount) -> bool {
-        let current_time = std::time::SystemTime::now()
-            .duration_since(std::time::SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        
-        // if current_time > task.end_at {
-        if current_time as i64 > task.end_at {
+        // Use on-chain block timestamp instead of system time
+        // This ensures we're using the same clock the program uses
+        if task.block_timestamp > task.end_at {
             return true;
         }
         false

@@ -29,6 +29,9 @@ pub struct ConfigAccount {
     pub _weight_model: WeightModel,
     pub _resolution_type: ResolutionType,
     pub _epoch_duration: i64,
+
+    pub _weight_rate_numerator: u64,
+    pub _weight_rate_denominator: u64,
 }
 
 #[derive(BorshDeserialize, Clone, Copy, Debug, PartialEq)]
@@ -60,4 +63,5 @@ pub struct TaskAccount {
     pub epoch_result_state: EpochResultState,
     pub pool_count: u8,
     pub custom_pda: Option<Pubkey>,
+    pub block_timestamp: i64,
 }
