@@ -16,19 +16,19 @@ pub enum ResolutionType {
 
 #[derive(BorshDeserialize, Debug)]
 pub struct ConfigAccount {
-    pub admin: Pubkey,
-    pub resolver: Pubkey,
+    pub _admin: Pubkey,
+    pub _resolver: Pubkey,
     pub current_epoch: u64,
-    pub total_positions_minted: u64,
-    pub position_price: u64,
-    pub remaining_total_position: u64,
-    pub allowed_mint: Pubkey,
-    pub treasury_ata: Pubkey,
+    pub _total_positions_minted: u64,
+    pub _position_price: u64,
+    pub _remaining_total_position: u64,
+    pub _allowed_mint: Pubkey,
+    pub _treasury_ata: Pubkey,
 
     // Protocol configuration
-    pub weight_model: WeightModel,
-    pub resolution_type: ResolutionType,
-    pub epoch_duration: i64,
+    pub _weight_model: WeightModel,
+    pub _resolution_type: ResolutionType,
+    pub _epoch_duration: i64,
 }
 
 #[derive(BorshDeserialize, Clone, Copy, Debug, PartialEq)]
@@ -40,14 +40,14 @@ pub enum EpochResultState {
 
 #[derive(BorshDeserialize, Debug)]
 pub struct EpochAccount {
-    pub epoch: u64,
-    pub weight: u64,
-    pub total_position_amount: u64,
+    pub _epoch: u64,
+    pub _weight: u64,
+    pub _total_position_amount: u64,
     pub end_at: i64,
-    pub winning_pool_id: u8,
+    pub _winning_pool_id: u8,
     pub epoch_result_state: EpochResultState,
     pub pool_count: u8,
-    pub pool_weights: [u64; 10 as usize],
+    pub _pool_weights: [u64; 10 as usize],
 }
 
 #[derive(BorshDeserialize, Debug)]

@@ -14,6 +14,8 @@ use solana_sdk::{
 };
 use solana_sdk_ids::system_program;
 
+const SEED_POOL: &[u8] = b"pool";
+
 
 fn calculate_discriminator(namespace: &str, name: &str) -> [u8; 8] {
     let preimage = format!("{}:{}", namespace, name);
@@ -25,14 +27,7 @@ fn calculate_discriminator(namespace: &str, name: &str) -> [u8; 8] {
     discriminator
 }
 
-pub struct ResolveExecutor {
-    pub rpc_client: Arc<RpcClient>,
-    pub keypair: Keypair,
-    pub program_id: Pubkey,
-}
-
-impl Executor<TaskAccount> for ResolveExecutor {
-    fn execute(&self, state: &TaskAccount) -> Result<()> {
+fn build_resolve_transaction(ctx: &ResolveExecutor, state: &TaskAccount )-> Result<u64> {
         let discriminator = calculate_discriminator("global", "resolve");
         let mut instruction_data = Vec::new();
         // Add Discriminator
@@ -40,10 +35,9 @@ impl Executor<TaskAccount> for ResolveExecutor {
         // Add argument
         instruction_data.push(0u8);
         // println!("Discriminator: {:?}", discriminator);
-        const SEED_POOL: &[u8] = b"pool";
 
         let mut accounts = vec![
-            AccountMeta::new(self.keypair.pubkey(), true),           // 0: signer
+            AccountMeta::new(ctx.keypair.pubkey(), true),           // 0: signer
             AccountMeta::new(state.config_pda, false),               // 1: config
             AccountMeta::new(state.epoch_result_pda, false),         // 2: epoch_result
         ];
@@ -100,18 +94,104 @@ impl Executor<TaskAccount> for ResolveExecutor {
             data: instruction_data,
         };
         
-        let recent_blockhash = self.rpc_client.get_latest_blockhash()?;
+        let recent_blockhash = ctx.rpc_client.get_latest_blockhash()?;
         
         let transaction = Transaction::new_signed_with_payer(
             &[instruction],
-            Some(&self.keypair.pubkey()),
-            &[&self.keypair],
+            Some(&ctx.keypair.pubkey()),
+            &[&ctx.keypair],
             recent_blockhash,
         );
         
-        let signature = self.rpc_client.send_and_confirm_transaction(&transaction)?;
+        let signature = ctx.rpc_client.send_and_confirm_transaction(&transaction)?;
         println!("Transaction successful: {}", signature);
-        
+
+        // We can increate the epoch here so we don't need to refetch the state
+        Ok(state.epoch + 1)
+}
+
+fn build_init_position_transaction(
+    ctx: &ResolveExecutor,
+    state: &TaskAccount,
+    next_epoch: u64
+) ->Result<()> {
+    let discriminator = calculate_discriminator("global", "initialize_pool");
+    let mut instruction_data = Vec::new();
+    // Add Discriminator
+    instruction_data.extend_from_slice(&discriminator);
+    // Add argument create 3 pools
+    instruction_data.push(3u8);
+
+
+    let (epoch_result_pda, _bump) = Pubkey::find_program_address(
+    &[
+            b"epoch_result",
+            next_epoch.to_le_bytes().as_ref()
+        ],
+        &state.program_id
+    );
+
+    println!("ctx.keypair.pubkey() {}", ctx.keypair.pubkey());
+    println!("epoch_result_pda {}", epoch_result_pda);
+    println!("state.config_pda {}", state.config_pda);
+
+    let mut accounts = vec![
+        AccountMeta::new(ctx.keypair.pubkey(), true),           // 0: signer
+        AccountMeta::new(state.config_pda, false),              // 1: config
+        AccountMeta::new(epoch_result_pda, false),        // 2: epoch_result
+        AccountMeta::new(system_program::ID, false),            // 3: system_program
+    ];
+
+    let mut remaining_account = vec![];
+    println!("pool count {}", &state.pool_count);
+
+    for i in 0..state.pool_count {
+        let (pool_pda, _) = Pubkey::find_program_address(
+            &[
+                SEED_POOL,
+                &[i],
+                next_epoch.to_le_bytes(). as_ref()
+            ],
+            &state.program_id
+        );
+        println!("pool_pda {}", &pool_pda);
+
+        remaining_account.push(AccountMeta::new(pool_pda, false));
+    }
+    accounts.append(&mut remaining_account);
+
+    let instruction = Instruction {
+        program_id: state.program_id,
+        accounts,
+        data: instruction_data,
+    };
+    
+    let recent_blockhash = ctx.rpc_client.get_latest_blockhash()?;
+    
+    let transaction = Transaction::new_signed_with_payer(
+        &[instruction],
+        Some(&ctx.keypair.pubkey()),
+        &[&ctx.keypair],
+        recent_blockhash,
+    );
+    
+    let signature = ctx.rpc_client.send_and_confirm_transaction(&transaction)?;
+    println!("Transaction successful: {}", signature);
+
+    Ok(())
+}
+
+pub struct ResolveExecutor {
+    pub rpc_client: Arc<RpcClient>,
+    pub keypair: Keypair,
+    pub program_id: Pubkey,
+}
+
+impl Executor<TaskAccount> for ResolveExecutor {
+    fn execute(&self, state: &TaskAccount) -> Result<()> {
+        // @todo improve Do not resolve if state is pending
+        let next_epoch = build_resolve_transaction(self, state)?;
+        build_init_position_transaction(self, state, next_epoch)?;
         Ok(())
     }
 }
