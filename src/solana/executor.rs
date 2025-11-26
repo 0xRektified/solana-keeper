@@ -137,8 +137,8 @@ fn build_init_position_transaction(
     let mut instruction_data = Vec::new();
     // Add Discriminator
     instruction_data.extend_from_slice(&discriminator);
-    // Add argument create 3 pools
-    instruction_data.push(3u8);
+    // Add argument create 4 pools
+    instruction_data.push(4u8);
 
 
     let (epoch_result_pda, _bump) = Pubkey::find_program_address(
