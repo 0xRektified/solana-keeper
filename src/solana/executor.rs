@@ -218,7 +218,15 @@ impl Executor<TaskAccount> for ResolveExecutor {
                 self.refresh_epoch_state(state)?;
             }
             EpochResultState::Pending => {
-                println!("Skipping: epoch {} is Pending", state.epoch);
+                // VRF callback pending - refresh state to check if it completed
+                println!("Epoch {} is Pending (waiting for VRF callback), refreshing state...", state.epoch);
+                self.refresh_epoch_state(state)?;
+                // If VRF completed and state is now Resolved, initialize pools
+                if state.epoch_result_state == EpochResultState::Resolved {
+                    println!("VRF callback completed, initializing pools...");
+                    build_init_position_transaction(self, state)?;
+                    self.refresh_epoch_state(state)?;
+                }
             }
         }
 
@@ -236,7 +244,11 @@ impl ResolveExecutor {
             &state.program_id
         );
 
-        let epoch_result_account = self.rpc_client.get_account(&epoch_result_pda)?;
+        // Use confirmed commitment to get fresh data after transaction
+        let epoch_result_account = self.rpc_client.get_account_with_commitment(
+            &epoch_result_pda,
+            CommitmentConfig::confirmed()
+        )?.value.ok_or_else(|| anyhow::anyhow!("Account not found: {}", epoch_result_pda))?;
         let epoch_state = EpochAccount::try_from_slice(&epoch_result_account.data[8..])?;
 
         state.epoch_result_pda = epoch_result_pda;

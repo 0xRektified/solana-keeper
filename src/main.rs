@@ -101,23 +101,41 @@ async fn main() -> Result<()> {
         ],
         &program_id
     );
-    let epoch_result_pda_account = client.get_account(&epoch_result_pda)?;
-    let epoch_state = EpochAccount::try_from_slice(&epoch_result_pda_account.data[8..])?;
-    println!("epoch_state: {:?}", epoch_state);
-
-    let end_at= epoch_state.end_at;
-
 
     let custom_pda = env::var("CUSTOM_PDA")
     .ok()
     .and_then(|s| Pubkey::from_str(&s).ok());
 
+    // Try to get the current epoch_result, if it doesn't exist we need to initialize pools
+    let (epoch_state, actual_epoch, actual_epoch_result_pda) = match client.get_account(&epoch_result_pda) {
+        Ok(account) => {
+            let state = EpochAccount::try_from_slice(&account.data[8..])?;
+            println!("epoch_state: {:?}", state);
+            (state, epoch, epoch_result_pda)
+        }
+        Err(_) => {
+            // Current epoch account doesn't exist, check previous epoch
+            // This happens when resolve succeeded but initialize_pool failed
+            println!("Epoch {} account not found, checking previous epoch...", epoch);
+            let prev_epoch = epoch.saturating_sub(1);
+            let (prev_epoch_result_pda, _) = Pubkey::find_program_address(
+                &[b"epoch_result", prev_epoch.to_le_bytes().as_ref()],
+                &program_id
+            );
+            let prev_account = client.get_account(&prev_epoch_result_pda)?;
+            let prev_state = EpochAccount::try_from_slice(&prev_account.data[8..])?;
+            println!("Previous epoch {} state: {:?}", prev_epoch, prev_state.epoch_result_state);
+            // Use previous epoch which should be Resolved, triggering initialize_pool
+            (prev_state, prev_epoch, prev_epoch_result_pda)
+        }
+    };
+
     let state = RefCell::new(TaskAccount {
         config_pda,
-        epoch_result_pda,
+        epoch_result_pda: actual_epoch_result_pda,
         program_id,
-        epoch,
-        end_at,
+        epoch: actual_epoch,
+        end_at: epoch_state.end_at,
         epoch_result_state: epoch_state.epoch_result_state,
         pool_count: epoch_state.pool_count,
         custom_pda,
