@@ -2,6 +2,7 @@
 use crate::core::executor::Executor;
 use crate::solana::state::{TaskAccount, EpochAccount, EpochResultState};
 use solana_client::rpc_client::RpcClient;
+use solana_client::rpc_config::{RpcSendTransactionConfig, CommitmentConfig};
 use anyhow::Result;
 use std::sync::Arc;
 use sha2::{Digest, Sha256};
@@ -103,7 +104,15 @@ fn build_resolve_transaction(ctx: &ResolveExecutor, state: &mut TaskAccount) -> 
             &[&ctx.keypair],
             recent_blockhash,
         );
-        let signature = ctx.rpc_client.send_and_confirm_transaction(&transaction)?;
+        let config = RpcSendTransactionConfig {
+            skip_preflight: true,
+            ..Default::default()
+        };
+        let signature = ctx.rpc_client.send_and_confirm_transaction_with_spinner_and_config(
+            &transaction,
+            CommitmentConfig::confirmed(),
+            config,
+        )?;
         println!("Resolve Transaction successful: {}", signature);
 
         Ok(())
@@ -172,7 +181,15 @@ fn build_init_position_transaction(
         recent_blockhash,
     );
 
-    let signature = ctx.rpc_client.send_and_confirm_transaction(&transaction)?;
+    let config = RpcSendTransactionConfig {
+        skip_preflight: true,
+        ..Default::default()
+    };
+    let signature = ctx.rpc_client.send_and_confirm_transaction_with_spinner_and_config(
+        &transaction,
+        CommitmentConfig::confirmed(),
+        config,
+    )?;
     println!("Init pool Transaction successful: {}", signature);
 
     state.epoch = new_epoch;
