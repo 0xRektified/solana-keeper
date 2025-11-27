@@ -9,6 +9,7 @@ use std::str::FromStr;
 use dotenv::dotenv;
 use anyhow::Result;
 use std::sync::Arc;
+use std::cell::RefCell;
 use crate::{
     core::watcher::Watcher,
     solana::{
@@ -55,7 +56,9 @@ async fn main() -> Result<()> {
     let client = Arc::new(RpcClient::new(config.rpc_url));
     let interval_duration = time::Duration::from_secs(config.polling_interval);
     
-    let trigger = TimestampTrigger{};
+    let trigger = TimestampTrigger{
+        rpc_client: Arc::clone(&client),
+    };
 
     let program_id = Pubkey::from_str(&config.program_id)?;
     let (config_pda, _bump) = Pubkey::find_program_address(
@@ -84,44 +87,42 @@ async fn main() -> Result<()> {
         duration: interval_duration
     };
 
-    let fetch_state = || -> Result<TaskAccount> {
-        let custom_pda = env::var("CUSTOM_PDA")
-            .ok()
-            .and_then(|s| Pubkey::from_str(&s).ok());
+    let config_pda_account = client.get_account(&config_pda)?;
+    println!("{}", &config_pda_account.data.len());
+    let config_state = ConfigAccount::try_from_slice(&config_pda_account.data[8..])?;
+    println!("config_state: {:?}", config_state);
+    let epoch = config_state.current_epoch;
 
-        let account = client.get_account(&config_pda)?;
-        println!("{}", &account.data.len());
-        let config_state = ConfigAccount::try_from_slice(&account.data[8..])?;
-        println!("config_state: {:?}", config_state);
 
-        let (epoch_result_pda, _bump) = Pubkey::find_program_address(
-        &[
-                b"epoch_result",
-                config_state.current_epoch.to_le_bytes().as_ref()
-            ],
-            &program_id
-        );
-        let account = client.get_account(&epoch_result_pda)?;
-        let epoch_state = EpochAccount::try_from_slice(&account.data[8..])?;
-        println!("epoch_state: {:?}", epoch_state);
+    let (epoch_result_pda, _bump) = Pubkey::find_program_address(
+    &[
+            b"epoch_result",
+            epoch.to_le_bytes().as_ref()
+        ],
+        &program_id
+    );
+    let epoch_result_pda_account = client.get_account(&epoch_result_pda)?;
+    let epoch_state = EpochAccount::try_from_slice(&epoch_result_pda_account.data[8..])?;
+    println!("epoch_state: {:?}", epoch_state);
 
-        let slot = client.get_slot()?;
-        let block_timestamp = client.get_block_time(slot)? as i64;
-        println!("block_timestamp: {}", block_timestamp);
+    let end_at= epoch_state.end_at;
 
-        let task_account = TaskAccount{
-            config_pda: config_pda,
-            epoch_result_pda: epoch_result_pda,
-            program_id: program_id,
-            epoch: config_state.current_epoch,
-            end_at: epoch_state.end_at,
-            epoch_result_state: epoch_state.epoch_result_state,
-            pool_count: epoch_state.pool_count,
-            custom_pda: custom_pda,
-            block_timestamp: block_timestamp,
-        };
-        Ok(task_account)
-    };
-    watcher.run(fetch_state).await?;
+
+    let custom_pda = env::var("CUSTOM_PDA")
+    .ok()
+    .and_then(|s| Pubkey::from_str(&s).ok());
+
+    let state = RefCell::new(TaskAccount {
+        config_pda,
+        epoch_result_pda,
+        program_id,
+        epoch,
+        end_at,
+        epoch_result_state: epoch_state.epoch_result_state,
+        pool_count: epoch_state.pool_count,
+        custom_pda,
+    });
+
+    watcher.run(&state).await?;
     Ok(())
 }

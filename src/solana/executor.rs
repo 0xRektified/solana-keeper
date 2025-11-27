@@ -1,6 +1,6 @@
 
 use crate::core::executor::Executor;
-use crate::solana::state::TaskAccount;
+use crate::solana::state::{TaskAccount, EpochAccount, EpochResultState};
 use solana_client::rpc_client::RpcClient;
 use anyhow::Result;
 use std::sync::Arc;
@@ -13,6 +13,7 @@ use solana_sdk::{
     signature::Keypair,
 };
 use solana_sdk_ids::system_program;
+use borsh::BorshDeserialize;
 
 const SEED_POOL: &[u8] = b"pool";
 
@@ -27,10 +28,7 @@ fn calculate_discriminator(namespace: &str, name: &str) -> [u8; 8] {
     discriminator
 }
 
-fn build_resolve_transaction(ctx: &ResolveExecutor, state: &TaskAccount )-> Result<u64> {
-        const MAX_RETRIES: u32 = 3;
-        const RETRY_DELAY_MS: u64 = 1000;
-
+fn build_resolve_transaction(ctx: &ResolveExecutor, state: &mut TaskAccount) -> Result<()> {
         let discriminator = calculate_discriminator("global", "resolve");
         let mut instruction_data = Vec::new();
         // Add Discriminator
@@ -97,54 +95,35 @@ fn build_resolve_transaction(ctx: &ResolveExecutor, state: &TaskAccount )-> Resu
             data: instruction_data,
         };
 
-        // Retry logic for epoch timing issues
-        let mut last_error = None;
-        for attempt in 1..=MAX_RETRIES {
-            let recent_blockhash = ctx.rpc_client.get_latest_blockhash()?;
+        let recent_blockhash = ctx.rpc_client.get_latest_blockhash()?;
 
-            let transaction = Transaction::new_signed_with_payer(
-                &[instruction.clone()],
-                Some(&ctx.keypair.pubkey()),
-                &[&ctx.keypair],
-                recent_blockhash,
-            );
+        let transaction = Transaction::new_signed_with_payer(
+            &[instruction.clone()],
+            Some(&ctx.keypair.pubkey()),
+            &[&ctx.keypair],
+            recent_blockhash,
+        );
+        let signature = ctx.rpc_client.send_and_confirm_transaction(&transaction)?;
+        println!("Resolve Transaction successful: {}", signature);
 
-            match ctx.rpc_client.send_and_confirm_transaction(&transaction) {
-                Ok(signature) => {
-                    println!("Transaction successful: {}", signature);
-                    return Ok(state.epoch + 1);
-                }
-                Err(e) => {
-                    last_error = Some(e);
-                    if attempt < MAX_RETRIES {
-                        println!("Attempt {} failed, retrying in {}ms...", attempt, RETRY_DELAY_MS);
-                        std::thread::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS));
-                    }
-                }
-            }
-        }
-
-        // All retries failed, return the last error
-        Err(last_error.unwrap().into())
+        Ok(())
 }
 
 fn build_init_position_transaction(
     ctx: &ResolveExecutor,
-    state: &TaskAccount,
-    next_epoch: u64
+    state: &mut TaskAccount,
 ) ->Result<()> {
     let discriminator = calculate_discriminator("global", "initialize_pool");
     let mut instruction_data = Vec::new();
-    // Add Discriminator
     instruction_data.extend_from_slice(&discriminator);
-    // Add argument create 4 pools
     instruction_data.push(4u8);
 
-
+    let new_epoch = state.epoch + 1;
+    println!("build_init_position_transaction new_epoch {}", new_epoch);
     let (epoch_result_pda, _bump) = Pubkey::find_program_address(
     &[
             b"epoch_result",
-            next_epoch.to_le_bytes().as_ref()
+            new_epoch.to_le_bytes().as_ref()
         ],
         &state.program_id
     );
@@ -168,7 +147,7 @@ fn build_init_position_transaction(
             &[
                 SEED_POOL,
                 &[i],
-                next_epoch.to_le_bytes(). as_ref()
+                new_epoch.to_le_bytes().as_ref()
             ],
             &state.program_id
         );
@@ -183,18 +162,20 @@ fn build_init_position_transaction(
         accounts,
         data: instruction_data,
     };
-    
+
     let recent_blockhash = ctx.rpc_client.get_latest_blockhash()?;
-    
+
     let transaction = Transaction::new_signed_with_payer(
         &[instruction],
         Some(&ctx.keypair.pubkey()),
         &[&ctx.keypair],
         recent_blockhash,
     );
-    
+
     let signature = ctx.rpc_client.send_and_confirm_transaction(&transaction)?;
-    println!("Transaction successful: {}", signature);
+    println!("Init pool Transaction successful: {}", signature);
+
+    state.epoch = new_epoch;
 
     Ok(())
 }
@@ -202,14 +183,53 @@ fn build_init_position_transaction(
 pub struct ResolveExecutor {
     pub rpc_client: Arc<RpcClient>,
     pub keypair: Keypair,
+    #[allow(dead_code)]
     pub program_id: Pubkey,
 }
 
 impl Executor<TaskAccount> for ResolveExecutor {
-    fn execute(&self, state: &TaskAccount) -> Result<()> {
-        // @todo improve Do not resolve if state is pending
-        let next_epoch = build_resolve_transaction(self, state)?;
-        build_init_position_transaction(self, state, next_epoch)?;
+    fn execute(&self, state: &mut TaskAccount) -> Result<()> {
+        println!("Executing: epoch {} state {:?}", state.epoch, state.epoch_result_state);
+
+        match state.epoch_result_state {
+            EpochResultState::Active => {
+                build_resolve_transaction(self, state)?;
+                self.refresh_epoch_state(state)?;
+            }
+            EpochResultState::Resolved => {
+                build_init_position_transaction(self, state)?;
+                self.refresh_epoch_state(state)?;
+            }
+            EpochResultState::Pending => {
+                println!("Skipping: epoch {} is Pending", state.epoch);
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl ResolveExecutor {
+    fn refresh_epoch_state(&self, state: &mut TaskAccount) -> Result<()> {
+        let (epoch_result_pda, _bump) = Pubkey::find_program_address(
+            &[
+                b"epoch_result",
+                state.epoch.to_le_bytes().as_ref()
+            ],
+            &state.program_id
+        );
+
+        let epoch_result_account = self.rpc_client.get_account(&epoch_result_pda)?;
+        let epoch_state = EpochAccount::try_from_slice(&epoch_result_account.data[8..])?;
+
+        state.epoch_result_pda = epoch_result_pda;
+        state.end_at = epoch_state.end_at;
+        state.epoch_result_state = epoch_state.epoch_result_state;
+        state.pool_count = epoch_state.pool_count;
+
+        println!("Refreshed state for epoch {}: end_at={}, state={:?}",
+            state.epoch, state.end_at, state.epoch_result_state);
+
         Ok(())
     }
 }

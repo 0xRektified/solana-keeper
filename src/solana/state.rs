@@ -41,6 +41,12 @@ pub enum EpochResultState {
     Resolved,
 }
 
+impl Default for EpochResultState {
+    fn default() -> Self {
+        EpochResultState::Active
+    }
+}
+
 #[derive(BorshDeserialize, Debug)]
 pub struct EpochAccount {
     pub _epoch: u64,
@@ -53,7 +59,7 @@ pub struct EpochAccount {
     pub _pool_weights: [u64; 10 as usize],
 }
 
-#[derive(BorshDeserialize, Debug)]
+#[derive(BorshDeserialize, Debug, Clone)]
 pub struct TaskAccount {
     pub config_pda: Pubkey,
     pub epoch_result_pda: Pubkey,
@@ -63,5 +69,4 @@ pub struct TaskAccount {
     pub epoch_result_state: EpochResultState,
     pub pool_count: u8,
     pub custom_pda: Option<Pubkey>,
-    pub block_timestamp: i64,
 }
